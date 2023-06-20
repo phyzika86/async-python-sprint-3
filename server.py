@@ -1,4 +1,6 @@
-# import asyncio
+"""
+Файл запускающий сервер для обмена сообщениями на хост порт HOST PORT
+"""
 import socket
 import threading
 import logging
@@ -8,10 +10,11 @@ import os
 import shutil
 import pickle
 from collections import defaultdict
+from config import HOST, PORT
 
 
 class Server:
-    def __init__(self, host: str = "127.0.0.1", port: int = 8000, max_length_history: int = 20, ban_time: int = 4):
+    def __init__(self, host: str = HOST, port: int = PORT, max_length_history: int = 20, ban_time: int = 4):
         """Инициализируем входные параметры сервера"""
         self.host = host
         self.port = port
@@ -44,7 +47,7 @@ class Server:
             datetime.now().strftime("%Y-%m-%d %H:%M:%S ").encode('utf-8') + f'({from_user}-лс): '.encode('utf-8') + msg)
 
     @staticmethod
-    def get_to_user_name(message):
+    def get_to_user_name(message: str) -> tuple[str, str]:
         """Метод определяет юзера которому будет адресовано сообщение или бан"""
         k = 0
         for sb in message:
@@ -58,35 +61,34 @@ class Server:
         to_user = message[1:k].strip()
         return to_user, message[k:].strip()
 
-    def handle(self, client, nickname):
+    def _update_history(self, message, nickname):
+        message_history = datetime.now().strftime("%Y-%m-%d %H:%M:%S ").encode(
+            'utf-8') + f'{nickname}: '.encode('utf-8') + message
+        if len(self.history) < self.max_length_history:
+            self.history.append(message_history)
+        else:
+            self.history.append(message_history)
+            self.history.popleft()
+
+        shutil.rmtree("history_chat.txt", ignore_errors=True)
+        with open("history_chat.txt", 'wb') as f:
+            pickle.dump(self.history, f, protocol=pickle.HIGHEST_PROTOCOL)
+
+    def handle(self, client: socket, nickname: str):
         while True:
             try:
                 message = client.recv(1024)  # Получаем сообщение от клиента
                 if self.banusers[nickname]['foul'] >= 3:
                     if datetime.now() - self.banusers[nickname]['time'] < timedelta(hours=self.ban_time):
                         time_endban = self.banusers[nickname]['time'] + timedelta(hours=self.ban_time)
+                        time_endban = time_endban.strftime('%Y-%m-%d %H:%M:%S')
                         self.private_cast(client=client,
-                                          msg=f'Вы забанены. Бан истечет в  {time_endban}'.encode('utf-8'),
+                                          msg=f'Вы забанены. Бан истечет в {time_endban}'.encode('utf-8'),
                                           from_user='server')
                         continue
                     else:
                         self.banusers[nickname]['foul'] = 0
                 decode_message = message.decode('utf-8')
-
-                message_history = datetime.now().strftime("%Y-%m-%d %H:%M:%S ").encode(
-                    'utf-8') + f'{nickname}: '.encode('utf-8') + message
-                if len(self.history) < self.max_length_history:
-                    self.history.append(message_history)
-                else:
-                    self.history.append(message_history)
-                    self.history.popleft()
-
-                if not os.path.exists('test/'):
-                    os.mkdir('test')
-
-                shutil.rmtree("history_chat.txt", ignore_errors=True)
-                with open("history_chat.txt", 'wb') as f:
-                    pickle.dump(self.history, f, protocol=pickle.HIGHEST_PROTOCOL)
 
                 if decode_message[0] == '#':
                     to_user, _ = self.get_to_user_name(decode_message)
@@ -108,7 +110,38 @@ class Server:
                     to_user, msg = self.get_to_user_name(decode_message)
                     self.private_cast(client=self.dict_clients.get(to_user),
                                       msg=msg.encode('utf-8'), from_user=nickname)
+                elif decode_message[0] == '$':
+                    file_name = decode_message.split('$')[1]
+                    extension = decode_message.split('$')[2]
+                    control_suma = int(decode_message.split('$')[3])
+                    with open(f'{file_name}.{extension}', 'ab+') as f:
+                        size_file = 0
+                        while True:
+                            msg = client.recv(1024)
+                            size_file += len(msg)
+                            try:
+                                error_load_file = msg.decode('utf-8')
+                            except UnicodeDecodeError:
+                                error_load_file = ''
+                                logging.info(f'Возможно прилетел не текстовый файл')
+
+                            try:
+                                if error_load_file == 'ERROR_PATH':
+                                    break
+                                if size_file == control_suma:
+                                    self.private_cast(client=client, msg=f'Файл успешно сохранен'.encode('utf-8'),
+                                                      from_user='server')
+                                    f.write(msg)
+                                    break
+                                else:
+                                    f.write(msg)
+                            except Exception as e:
+                                logging.info(f'Произошла ошибка {e}')
+                                break
+                    if error_load_file == 'ERROR_SIZE':
+                        os.remove(file_name)
                 else:
+                    self._update_history(message=message, nickname=nickname)
                     logging.info('Трансляция сообщения всем клиентам')
                     self.broadcast(message=message, nickname=nickname)
 
@@ -159,12 +192,15 @@ class Server:
         self.receive()
 
 
+def start_server():
+    server = Server()
+    server.listen()
+
+
 if __name__ == '__main__':
     logging.basicConfig(
         level=logging.INFO,
         format='[%(asctime)s] %(levelname).1s %(message)s',
         datefmt='%Y.%m.%d %H:%M:%S',
     )
-
-    server = Server()
-    server.listen()
+    start_server()
