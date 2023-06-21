@@ -26,7 +26,7 @@ class Server:
         self.banusers = defaultdict(lambda: dict(time=datetime.now(), foul=0))
         self.ban_time = ban_time
         try:
-            with open(f"history_chat.txt", 'rb') as f:
+            with open(f"history_chat.pickle", 'rb') as f:
                 data = pickle.load(f)
             if isinstance(data, deque):
                 self.history = data
@@ -61,7 +61,7 @@ class Server:
         to_user = message[1:k].strip()
         return to_user, message[k:].strip()
 
-    def _update_history(self, message, nickname):
+    def _update_history(self, message: bytes, nickname: str) -> None:
         message_history = datetime.now().strftime("%Y-%m-%d %H:%M:%S ").encode(
             'utf-8') + f'{nickname}: '.encode('utf-8') + message
         if len(self.history) < self.max_length_history:
@@ -70,8 +70,8 @@ class Server:
             self.history.append(message_history)
             self.history.popleft()
 
-        shutil.rmtree("history_chat.txt", ignore_errors=True)
-        with open("history_chat.txt", 'wb') as f:
+        shutil.rmtree("history_chat.pickle", ignore_errors=True)
+        with open("history_chat.pickle", 'wb') as f:
             pickle.dump(self.history, f, protocol=pickle.HIGHEST_PROTOCOL)
 
     def handle(self, client: socket, nickname: str):

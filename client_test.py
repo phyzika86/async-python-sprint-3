@@ -21,7 +21,7 @@ class TCPClientTestCase(unittest.TestCase):
     def setUpClass(cls):
         client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
-            os.remove("history_chat.txt")
+            os.remove("history_chat.pickle")
         except:
             pass
         cls.client = client
